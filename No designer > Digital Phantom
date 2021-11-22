@@ -1,0 +1,344 @@
+# Copyright 2021-06-14 Seonghyn Ahn, Yonsei University,Dept. Radiological Science
+# 최종 수정자는 연세대학교 보건과학대학 방사선학과 안성현입니다.
+#
+import sys
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import numpy as np
+from PyQt5.QtCore import QBasicTimer
+
+"""
+최종 완성본 설명입니다.
+1. 실험 후 영상을 얻었고, 그 영상을 불러옵니다.
+2. 영상을 불러온 후 DICOM을 해석해 어떤 조건인지 확인해줍니다.
+3. 해당 조건 확인 후 영상의 각 픽셀 별 Gray Scale Value를 하나하나 for문으로 읽습니다.
+4. T1-weight Image의 경우 T2의 인자가 최소화 되어있기 때문에 각 픽셀별 나오는 값은 T1값으로 인지합니다.
+5. T2-weight Image도 마찬가지 입니다.
+6. PD의 경우 공식에 대입하여 Value를 정리합니다.
+7. 각 T1, T2, PD의 Value를 하나하나 파일로 저장합니다.
+8. 그리고 최종 프로그래밍으로 들어갑니다.
+*** 현재 anaconda designer로 제작된 pyqt가 아닙니다. -> 수정예정 ***
+"""
+T1_Value = np.load('D:\캡스톤디자인(연세)\T1,T2,PD data/T1/T1_Value_data.npy') # 뽑았던 T1 데이터를 읽습니다.
+T2_Value = np.load('D:\캡스톤디자인(연세)\T1,T2,PD data/T2/T2_Value_data.npy') # 뽑았던 T2 데이터를 읽습니다.
+PD_Value = np.load('D:\캡스톤디자인(연세)\T1,T2,PD data/PD/PD_Value_0Slice.npy') # 뽑았던 PD 데이터를 읽습니다.
+
+class MyWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setupUI()
+
+    def setupUI(self):
+        self.setGeometry(600, 200, 700, 700) # 창의 크기
+        self.setWindowTitle("Yonsei Univ, Dept of Radiological Science, MRI Brain Digital Phantom") #타이틀
+        self.setWindowIcon(QIcon('ysuniv_Nq0_6.ico')) #아이콘, 현재는 없음
+        
+
+        
+        self.TRLabel = QLabel("TR input ", self) #TR 인자를 사용자가 직접 입력하게 설정
+        self.TELabel = QLabel("TE input ", self) #TE 인자를 사용자가 직접 입력하게 설정
+        self.SliceLabel = QLabel("Slice Selection ", self) #사용자가 원하는 Slice를 보게 설정
+        self.TRinput = QLineEdit() 
+        self.TEinput = QLineEdit()
+        self.pushButton = QPushButton("Program Run") # 실행버튼
+        self.pushButton.clicked.connect(self.pushButtonClicked)
+
+        self.fig = plt.Figure()
+        self.canvas = FigureCanvas(self.fig)
+        
+        
+        leftLayout = QVBoxLayout()
+        leftLayout.addWidget(self.canvas)
+        cb = QComboBox() #몇 번의 슬라이스를 볼건지 선택하는 창
+        cb.addItem('1st Slice')
+        cb.addItem('5th Slice')
+        cb.addItem('8th Slice')
+        cb.addItem('13th Slice')
+        cb.addItem('17th Slice')
+        cb.addItem('19th Slice')
+        cb.addItem('21th Slice')
+        cb.addItem('24th Slice')        
+        cb.addItem('26th Slice')
+        cb.addItem('31th Slice')        
+        cb.activated[str].connect(self.onComboBoxChanged)
+        self.onComboBoxChanged(cb.currentText())        
+#        self.canvas.setFixedSize(600,600)
+        # Right Layout
+        # 라벨링 - 이름표시
+        rightLayout = QVBoxLayout()
+        rightLayout.addWidget(self.TRLabel)
+        rightLayout.addWidget(self.TRinput)
+        self.TRinput.setFixedSize(200,30)
+        rightLayout.addWidget(self.TELabel)
+        rightLayout.addWidget(self.TEinput)        
+        self.TEinput.setFixedSize(200,30)
+        rightLayout.addWidget(self.SliceLabel)
+        rightLayout.addWidget(cb)
+        rightLayout.addWidget(self.pushButton)
+        rightLayout.addStretch(1)
+        
+
+        layout = QHBoxLayout()
+
+        layout.addLayout(leftLayout)
+        layout.addLayout(rightLayout)
+        layout.setStretchFactor(leftLayout, 1)
+        layout.setStretchFactor(rightLayout, 0)
+
+        self.setLayout(layout)   
+        
+    def onComboBoxChanged(self, text): # 사용자가 슬라이스를 선택할 경우 해당되는 값으로 이동
+        if text == '1st Slice':
+            self.pushButtonClicked()
+        elif text == '5th Slice':
+            self.fifth()
+        elif text == '8th Slice':
+            self.eighth()
+        elif text == '13th Slice':
+            self.thirteenth()
+        elif text == '17th Slice':
+            self.seventeenth()
+        elif text == '19th Slice':
+            self.nineteenth()
+        elif text == '21th Slice':
+            self.twentyfirst()            
+        elif text == '24th Slice':
+            self.twentyfourth()
+        elif text == '26th Slice':
+            self.twentysixth()
+        elif text == '31th Slice':
+            self.thirtyfirst()     
+        
+    def pushButtonClicked(self):
+
+        try: #시도하죠
+            TR = int(self.TRinput.text()) #입력된 TR값을 받습니다. 
+            TE = int(self.TEinput.text()) #입력된 TE값을 받습니다.
+            X_Start_num = 30 # X축 시작되는 번호
+            X_End_num = 240 # X축 끝나는 번호
+            Y_Start_num = 12 # Y축 시작되는 번호
+            Y_End_num = 248 # Y축 끝나는 번호
+            Phantom = np.zeros(shape=(35,256,256)) # 제작되는 팬텀의 Scale은 256,256픽셀을 가지고 모든 값은 0으로 시작, 35장
+            for slicenum in range(0,1): # 사용자가 첫번째 슬라이스를 선택했기에 첫번째 영상만 보여줍니다.
+                for xnum in range(X_Start_num,X_End_num):  #30, 240
+                    for ynum in range(Y_Start_num,Y_End_num): # 12, 248
+                        
+                        # 이게 bloch equation인데 읽어서 불러온 T1, T2, PD값과 사용자가 입력한 TR, TE값을 통해
+                        # 각 슬라이스 픽셀 별 값들을 계산하여 가지고 오는겁니다.
+                        
+                        # 팬텀[슬라이스번호][X축][Y축]의 값 = 블럭방정식의 계산 값
+                        # 즉 for문 통해서 하나하나 계산해서 들어가는거죠.
+                        
+                        Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+            self.fig.clear()
+  
+            ax = self.fig.add_subplot(111)
+            ax.imshow(Phantom[0,:,:], cmap='gray') # 만들어진 해당 팬텀을 나타냅니다. Phantom[슬라이스번호,전체,전체]
+            self.canvas.draw() #그리기
+            
+        except ValueError: #만약 TR과 TE가 입력되어지지 않을 경우
+            reply = QMessageBox.question(self, 'Yonsei Univ', '정확한 TR과 TE Value를 입력해주세요!',
+                                    QMessageBox.Yes) # | QMessageBox.No, QMessageBox.No
+
+       
+
+    def fifth(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(4,5):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[4,:,:], cmap='gray')
+        self.canvas.draw()
+
+    def eighth(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(7,8):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[7,:,:], cmap='gray')
+        self.canvas.draw()
+
+    def thirteenth(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(12,13):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[12,:,:], cmap='gray')
+        self.canvas.draw()
+
+    def seventeenth(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(16,17):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[16,:,:], cmap='gray')
+        self.canvas.draw()
+
+    def nineteenth(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(18,19):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[18,:,:], cmap='gray')
+        self.canvas.draw()
+
+    def twentyfirst(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(20,21):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[20,:,:], cmap='gray')
+        self.canvas.draw()
+
+    def twentyfourth(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(23,24):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[23,:,:], cmap='gray')
+        self.canvas.draw()
+
+    def twentysixth(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(25,26):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[25,:,:], cmap='gray')
+        self.canvas.draw()
+
+    def thirtyfirst(self):
+        TR = int(self.TRinput.text())
+        TE = int(self.TEinput.text())
+        X_Start_num = 30
+        X_End_num = 240
+        Y_Start_num = 12
+        Y_End_num = 248
+        Phantom = np.zeros(shape=(35,256,256))
+        for slicenum in range(30,31):
+            for xnum in range(X_Start_num,X_End_num):
+                for ynum in range(Y_Start_num,Y_End_num):
+                        
+                    Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+        self.fig.clear()
+        
+        ax = self.fig.add_subplot(111)
+        ax.imshow(Phantom[30,:,:], cmap='gray')
+        self.canvas.draw()
+
+
+                
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MyWindow()
+    window.show()
+    app.exec_()
