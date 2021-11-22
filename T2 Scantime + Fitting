@@ -1,0 +1,126 @@
+#Scantime 계산 후 fitting 들어가는 코드입니다.
+#Copyright 2021. Seonghyn Ahn in Yonsei UNIV All code cannot be copied without permission
+
+## import#######################################
+import numpy as np
+import math as ma
+from scipy.optimize import curve_fit
+import matplotlib.pyplot as plt
+################################################
+
+# Calculation TE scantime range for T2 weight image.
+ALL_TE_SUM = []
+# TE range setting
+global TE_Range
+TE_Range = np.array([10,20,30,40,50,60,70,80,90,100])
+
+# Using TE range, Equation Calculation 
+# 'for' Repitition
+
+# Fixed Value # or # You can change the value.
+global TR
+TR = 2000
+global T1
+T1 = 1000
+global T2
+T2 = 100
+global PD
+PD = 1
+
+for TE in TE_Range: # each TE Value setting
+    # TE Scantime Calculation factor
+    Ny = 128
+    Nz = 35
+    NEX = 1
+    
+    # Scantime Equation (ms)
+    TE_Scantime_Cal = NEX * Ny * TR * ma.ceil((Nz/(TR/TE)))
+    
+    # Scantime ms -> min
+    TE_Scantime_min = (TE_Scantime_Cal/1000)/60
+    ALL_TE_SUM.append(TE_Scantime_min)
+
+    print('TE = %d ms, Scantime = %d min' % (TE, TE_Scantime_min))
+    # Scantime SUM Calculation
+ALL_TE_SUM_Value = sum(ALL_TE_SUM)
+
+print('All TE value Scan time = %d min' % ALL_TE_SUM_Value)
+
+###################################### After Scan time Calculation, 
+########################## Start Fitting Factor Calculation.
+
+# Bloch Equation Setting
+def func(TE, C, T2): # get Value
+    return C * (np.exp(-TE/T2))
+
+# TE_range setting is already Setting. 9 line.
+# C value = disreplacement equation.
+C = PD * (1-np.exp(-TR/T1))
+print('********************************')
+print('C value = %3f' % C,'T2 value = %d' % T2)
+
+# To Calculate Signal, set the factor in function. 
+Signal = func(TE_Range, C, T2)
+# Plus Noise
+Signal_Noise = Signal + 0.04 * np.random.normal(size=len(TE_Range))
+
+plt.plot(TE_Range, Signal_Noise, '.', label = 'data')
+
+# After curve_fitting show the best fit model Value.
+popt, pcov = curve_fit(func, TE_Range, Signal_Noise, bounds=((0,0),(1000,1000)),method='trf')
+np.nan_to_num(popt, copy=False)
+print('Fitting C value = ',popt[0], 'Fitting T2 value = ', popt[1])
+#print('Fitting PCOV = ',pcov)
+
+# show the graph
+tuple(popt)
+plt.scatter(TE_Range, Signal_Noise, marker='.')
+plt.plot(TE_Range,func(TE_Range, *popt), color = 'red', linewidth=2)
+plt.legend(['Original','Best Fit'], loc=2)
+plt.show()
+
+######### Final Fitting.
+######### We need a many value in various project.
+
+#NEED a calculation
+sumpercentageC = []
+sumpercentageT2 = []
+
+# Change the range value.
+global RANGE_NUM
+RANGE_NUM = 200
+
+for i in range(RANGE_NUM): #How many calculate the projection?
+
+    # Bloch Equation Setting
+    def func(TE, C, T2): # get Value
+        return C * (np.exp(-TE/T2))
+
+    # TE_range setting is already Setting. 9 line.
+    # C value = disreplacement equation.
+    C = PD * (1-np.exp(-TR/T1))
+    
+    # To Calculate Signal, set the factor in function. 
+    Signal = func(TE_Range, C, T2)
+    # Plus Noise
+    Signal_Noise = Signal + 0.04 * np.random.normal(size=len(TE_Range))
+    
+    # After curve_fitting show the best fit model Value.
+    popt, pcov = curve_fit(func, TE_Range, Signal_Noise, bounds=((0,0),(1000,1000)),method='trf')
+    np.nan_to_num(popt, copy=False)
+
+    percentageC = abs(((C-popt[0])/C))
+    percentageT2 = abs(((T2-popt[1])/T2))
+    
+    sumpercentageC.append(percentageC)
+    sumpercentageT2.append(percentageT2)
+            
+averageT2 = abs(sum(sumpercentageT2))/RANGE_NUM
+averageC = abs(sum(sumpercentageC))/RANGE_NUM
+            
+
+print('C 오차율 %.3f%%' % (abs(averageC)*100),'± %.3f' % ma.sqrt(abs(averageC)))
+print('T2 오차율 %.3f%%' % (abs(averageT2)*100),'± %.3f' % ma.sqrt(abs(averageT2)))
+    
+sumpercentageT2.clear()
+sumpercentageC.clear()
