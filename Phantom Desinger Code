@@ -1,0 +1,83 @@
+import numpy as np
+import sys
+from PyQt5.QtWidgets import *
+from PyQt5 import uic
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+import cv2
+from PIL import Image
+import webbrowser 
+
+## read a ui designer pyqt5
+SelectMain = uic.loadUiType("educational MRI Digital Brain Phantom.ui")[0]
+ShowTPhantom = uic.loadUiType("show the T1, T2, PD weight image.ui")[0]
+
+## read a t1, t2, pd data file
+T1_Value = np.load('D:\캡스톤디자인(연세)\T1,T2,PD data/T1/T1_Value_data.npy') # 뽑았던 T1 데이터를 읽습니다.
+T2_Value = np.load('D:\캡스톤디자인(연세)\T1,T2,PD data/T2/T2_Value_data.npy') # 뽑았던 T2 데이터를 읽습니다.
+PD_Value = np.load('D:\캡스톤디자인(연세)\T1,T2,PD data/PD/PD_Value_0Slice.npy') # 뽑았던 PD 데이터를 읽습니다.
+
+
+class ShowTPhantom(QMainWindow, ShowTPhantom) :
+    def __init__(self, parent=None):
+        super(ShowTPhantom, self).__init__(parent)
+        self.setupUi(self)
+        
+        self.pushButton.clicked.connect(self.showthephantomimage)
+        self.pushButton_2.clicked.connect(self.close)
+    
+    def showthephantomimage(self):
+        try:
+            TR = int(float(self.lineEdit.text()))
+            TE = int(float(self.lineEdit_2.text()))    
+
+            X_Start_num = 30 # X축 시작되는 번호
+            X_End_num = 240 # X축 끝나는 번호
+            Y_Start_num = 12 # Y축 시작되는 번호
+            Y_End_num = 248 # Y축 끝나는 번호
+            Phantom = np.zeros(shape=(35,256,256)) # 제작되는 팬텀의 Scale은 256,256픽셀을 가지고 모든 값은 0으로 시작, 35장
+            for slicenum in range(0,1): # 사용자가 첫번째 슬라이스를 선택했기에 첫번째 영상만 보여줍니다.
+                for xnum in range(X_Start_num,X_End_num):  #30, 240
+                    for ynum in range(Y_Start_num,Y_End_num): # 12, 248
+                        
+                        # 이게 bloch equation인데 읽어서 불러온 T1, T2, PD값과 사용자가 입력한 TR, TE값을 통해
+                        # 각 슬라이스 픽셀 별 값들을 계산하여 가지고 오는겁니다.
+                        
+                        # 팬텀[슬라이스번호][X축][Y축]의 값 = 블럭방정식의 계산 값
+                        # 즉 for문 통해서 하나하나 계산해서 들어가는거죠.
+                        
+                        Phantom[slicenum][xnum][ynum] = (PD_Value[slicenum][xnum][ynum]*
+                                                     (np.exp(-TE/T2_Value[slicenum][xnum][ynum]))*
+                                                     (1-np.exp(-TR/T1_Value[slicenum][xnum][ynum])))
+           
+            self.fig = plt.Figure()       
+            self.canvas = FigureCanvas(self.fig)
+            self.horizontalLayout.addWidget(self.canvas)
+            ImageT1T2PD = self.fig.add_subplot(111)
+            ImageT1T2PD.imshow(Phantom[0,:,:], cmap='gray')     
+            ImageT1T2PD.set_title("First Image")
+            ########### 10월 17일 이후 해야할 것
+            ########### 모든 영상 불러오기 -> 다른 곳 저장 -> 스크롤바 움직일떄마다 쫘르륵 보여주기 설정하면 끝.
+        except ValueError:
+            self.msg = QMessageBox()
+            self.msg.setIcon(QMessageBox.Information)
+            self.msg.setWindowTitle('경고')
+            self.msg.setText('값을 입력해주세요.')
+            retval = self.msg.exec_()   
+      
+class SelectMain(QMainWindow, SelectMain) :       
+    def __init__(self) :
+        super().__init__()
+        self.setupUi(self)
+        self.pushButton_6.clicked.connect(self.ShowPhantom)
+
+    def ShowPhantom(self) :
+        self.ShowTPhantom = ShowTPhantom(self)
+        self.ShowTPhantom.show()        
+        
+if __name__ == "__main__" :
+    app = QApplication(sys.argv) 
+    myWindow = SelectMain() 
+    myWindow.show()
+    app.exec_()
