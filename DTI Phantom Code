@@ -1,0 +1,243 @@
+import matplotlib.pyplot as plt
+from pydicom import dcmread
+import nibabel as nib
+import numpy as np
+import math
+import copy
+from sympy import Symbol, solve
+import time
+start = time.time()
+###############################################################################
+## Setting Factors
+###############################################################################
+img_path ='C:/Users\Seonghyn\Desktop\캡톤\DTIdata\DTIdata_DTI32DIR_20210628131844_2.nii.gz'
+# DTI 실험용 파일을 nii로 불러옵니다.
+img=nib.load(img_path)
+img_arr=img.get_fdata()
+img_hdr = img.header
+# 각 헤더랑 파일을 저장해줍니다.
+X_Shape = img_arr.shape[0] #112
+Y_Shape = img_arr.shape[1] #112
+Z_Shape = img_arr.shape[2] #74
+G_Shape = img_arr.shape[3] #33
+# X,Y,Z,G에 관한 설정, 4D
+S_zero_ImageData = copy.copy(img_arr[:,:,:,0])
+b_value = 600
+# 식에 적용될 S(0)와 B-value의 값을 설정해줍니다.
+
+###############################################################################
+### Calculation MD
+###############################################################################
+Cal_MD = np.zeros((X_Shape,Y_Shape,Z_Shape,G_Shape))
+# 계산한 MD값을 저장하는 곳입니다.
+for Cal_D_Range in range(1,G_Shape):
+    Cal_Sig = img_arr[:,:,:,Cal_D_Range]
+    Cal_MD[:,:,:,Cal_D_Range] = np.log10(np.divide(S_zero_ImageData,Cal_Sig, out=np.zeros_like(S_zero_ImageData),where=Cal_Sig!=0))/b_value
+# for문을 돌려서 MD값을 저장할겁니다.
+# S=S(0)*exp^-b*D의 식에서 D= 로 바꾸어 진행하는겁니다.
+# 오래걸리기 때문에 행렬끼리 연산해서 진행합니다.
+# divide(S(0),Signal)에 log친거 확인하면 되고, 이를 통해 MD가 나오게 됩니다.
+# 임의의 MD를 확인해봅시다.
+print("임의의 MD를 확인해봅시다 ->", Cal_MD[50,50,3,3])
+print("-----------------------------------------------")
+# 자연수 한개의 값이 나오는 것을 확인할 수 있습니다. 이게 D인거겠죠?
+MD=copy.deepcopy(Cal_MD[:,:,:,:])    
+MD[np.isinf(MD)]=0
+# 그대로 복사해주고, inf값은 0으로 설정해줍니다.
+
+###############################################################################
+### Calculation MG 
+###############################################################################
+def G(g):
+    return np.array([g[0]**2,2*g[0]*g[1], 2*g[0]*g[2], g[1]**2,2*g[1]*g[2],g[2]**2])
+# def문을 사용해 우리가 원하는 식으로 바꾸어 줄겁니다.
+# 관련 MG에 대한 식은 Diffusion Tensor Imaging문서 8페이지를 참고해주세요.
+Gradient_bvec=np.loadtxt('C:/Users\Seonghyn\Desktop\캡톤\DTIdata\DTIdata_DTI32DIR_20210628131844_2.bvec', dtype='float')
+# 실험에 사용된 B-vector의 값들을 불러옵니다.
+# 한번 읽어보죠.
+print('B-vector는 다음 아래와 같습니다.')
+print(Gradient_bvec)
+print("-----------------------------------------------")
+# 잘나오네요. 확인하셨나요?
+# 구성이 X, Y, Z 경사를 준 걸로 확인이 됩니다.
+MG = np.zeros((32,6)) 
+# 새로운 MG 변수를 만들어 Shape를 형성합니다.
+MGT = MG.transpose()
+# 계산에 사용될 MG의 전치행렬을 만들어줍니다.
+# 그리고 for문을 통해 만든 MG변수에 기존 읽었던 파일을 넣어줍시다.
+for Cal_Gra_Range in range(0,32):
+    MG[Cal_Gra_Range] = G(Gradient_bvec[:,Cal_Gra_Range])
+# 그리고 나서 def문을 사용해 우리가 원하는 식으로 바꾸어 주는겁니다.
+# 확인해봅시다.
+print('변환된 MG를 봅시다.')
+print(MG[1,:])
+print(MGT[:,1])
+print("-----------------------------------------------")
+# 넘어갑시다.
+
+###############################################################################
+### Calculation MDC
+###############################################################################
+# 우리는 현재 MD와 MG를 구하였습니다.
+# 이제 MDC를 구하는 식으로 들어가봅시다.
+## MDC = (MGT * MG)^-1 * MGT * MD
+DIFFUSION_VALUE = np.zeros((3,3))
+def D_value(D_value_T):
+    DIFFUSION_VALUE = np.zeros((3,3))
+    DIFFUSION_VALUE[0,0] = D_value_T[0]
+    DIFFUSION_VALUE[0,1] = D_value_T[1]
+    DIFFUSION_VALUE[0,2] = D_value_T[2]
+    DIFFUSION_VALUE[1,1] = D_value_T[3]
+    DIFFUSION_VALUE[1,2] = D_value_T[4]
+    DIFFUSION_VALUE[2,2] = D_value_T[5]
+    DIFFUSION_VALUE[1,0] = D_value_T[1]
+    DIFFUSION_VALUE[2,0] = D_value_T[2]
+    DIFFUSION_VALUE[2,1] = D_value_T[4]
+    return DIFFUSION_VALUE
+# 이 def문은 3*3행렬로 나타내기 위함입니다.
+# 이 식과 관련된 것은 Diffusion Tensor imaging 5페이지를 확인해주세요.
+
+CG = np.linalg.inv(MGT.dot(MG)).dot(MGT)
+# 여기서 CG는  MDC = (MGT * MG)^-1 * MGT * MD 이 식에서  (MGT * MG)^-1 * MGT부분을 치환한겁니다.
+# 이미 MG값과 MGT값을 알기 때문에 dot함수를 사용하여 행렬곱을 해주고, linalg.inv을 해 역행렬을 뽑아냅니다.
+# 확인해보죠
+print('CG의 행렬과 값을 다음 아래와 같습니다')
+print(CG.shape)
+print('임의로 아무거나 하나 들어가서 확인해봅시다.',CG[:,1])
+print("-----------------------------------------------")
+# (MGT * MG)^-1 * MGT를 설명하자면
+# (6*32행렬 * 32*6행렬)의 역행렬 * 6*32행렬 이 되는겁니다.
+# 그래서 최종적으로는 6* 32행렬이 나온다고합니다 ㅇㅅㅇ; 
+# 치환 CG를 끝냈네요.
+
+WITHOUT_ZERO_MD = np.zeros(shape=(112,112,74,32))
+for aa in range(1,32):
+    WITHOUT_ZERO_MD[:,:,:,aa] = MD[:,:,:,aa] 
+# MD를 꺼내야하는데 생각해보니 S(0)를 포함하고 있죠? 걔만 빼고 따로 변수를 설정해줍니다.
+
+A = WITHOUT_ZERO_MD.reshape(928256,32)
+# 계산을 편하게 하기 위해 4D를 A변수로 통하여 길게 나열해줍니다.
+# 이게 어떤 상태냐면,,
+# 112*112*74 = 928256 입니다. 즉 모든 픽셀을 한줄로 세운거라고 생각하시면 됩니다.
+# 여기서 픽셀별로 전부 계산에 들어가고 마지막에 reshape 해줘보는겁니다.
+B = A.T
+# CG가 6*32 행렬이니 계산에 맞게 32*928256으로 바꿔줍시다. = B
+MDC_SHAPE = CG.dot(B)
+
+MDC_TEST = MDC_SHAPE.T
+print(MDC_TEST.shape)
+# 우리는 MDC값을 나열했다고 보면 되는겁니다.
+# 한번 볼까요
+print(MDC_TEST[164255,:])
+# 우리는 MDC를 구한거네요 !!
+
+###############################################################################
+# 지금부터 MDC값을 이용해 다시 D값을 뽑아내고, 영상을 만들어봅시다.
+# 만약 우리가 잘했다면 기존 실험영상과 똑같은 영상이 나오겠죠 ?
+###############################################################################
+# 필요한 식은 Diffusion Tensor imaging 7페이지를 참고해주세요.
+
+print("-----------------------------------------------")
+print(MG.shape)
+print(MDC_SHAPE.shape)
+NEW_MD_VALUE_T = MG.dot(MDC_SHAPE)
+print(NEW_MD_VALUE_T.shape)
+NEW_MD_VALUE = NEW_MD_VALUE_T.T
+print(NEW_MD_VALUE.shape)
+
+NEW_MD_VALUE_ONE = NEW_MD_VALUE.reshape(112,112,74,32)
+
+# S(b) = S(0) * e^(-b*D)
+# test
+for a in range(30,40):
+    TESTNEW = S_zero_ImageData[:,:,a]*np.exp((-b_value)*NEW_MD_VALUE_ONE[:,:,a,1])
+    plt.imshow(TESTNEW, cmap='gray')
+    plt.show()
+    plt.imshow(img_arr[:,:,a,1], cmap='gray')
+    plt.show()
+'''
+nZ=73
+mIDX=np.transpose(np.where(S_zero_ImageData[:,:,nZ]>400))
+# S(0)영상에서 400이상 되는 값을 추스립니다.
+mIDX=np.array(mIDX.tolist())
+# 그걸 리스트화 시킵니다.
+
+
+print("time :", time.time() - start,"초")
+
+MDC_MATRIX = MDC_TEST.reshape(112,112,74,6)
+###############################################################################
+
+
+XYZ_VALUE = Gradient_bvec[:,7]
+XYZ_VALUE_T = XYZ_VALUE.T
+NEW_SIGNAL_D_VALUE = np.zeros((112,112,74))
+
+for TRANSFER_3BY3_S in range(0,74):
+    for TRANSFER_3BY3_Y in range(0,112):
+        for TRANSFER_3BY3_X in range(0,112):
+            XYZ_Gradient_3BY3 = D_value(MDC_MATRIX[TRANSFER_3BY3_X,TRANSFER_3BY3_Y,TRANSFER_3BY3_S])
+            NEW_D_VALUE = (XYZ_VALUE.dot(XYZ_Gradient_3BY3)).dot(XYZ_VALUE_T)
+            NEW_SIGNAL_D_VALUE[TRANSFER_3BY3_X,TRANSFER_3BY3_Y,TRANSFER_3BY3_S] = NEW_D_VALUE
+
+NEW_SIGNAL = np.exp(-b_value*NEW_SIGNAL_D_VALUE[:,:,:])
+
+
+for DDDTEST in range(0,74):
+    plt.imshow(NEW_SIGNAL[:,:,DDDTEST], cmap='gray')
+    plt.show()
+
+
+   
+##AA = D_value(MDC_MATRIX[50,50,3,:])
+##Eval, Evec=np.linalg.eig(AA)
+#print(Eval, Evec)
+##ADC=np.mean(Eval)
+#print(ADC)
+ADC_SAVE = np.zeros(shape=(110,112,74))
+for aaaaa in range(len(ADC_SAVE))
+    for bbbbb in range(0,112):
+        for ccccc in range(0,112):
+            AAA = D_value(MDC_MATRIX[ccccc,bbbbb,aaaaa,:])
+            Eval, Evec=np.linalg.eig(AAA)
+            ADC=np.mean(Eval)
+            ADC_SAVE[ccccc,bbbbb,aaaaa] = ADC
+for dada in range(0,74):
+    plt.imshow(ADC_SAVE[:,:,dada], cmap='gray')
+    plt.show()
+###############################################################################
+XYZ_VALUE = Gradient_bvec[:,15]
+XYZ_VALUE_T = XYZ_VALUE.T
+NEW_D_VALUE = (XYZ_VALUE.dot(AA)).dot(XYZ_VALUE_T)
+print(NEW_D_VALUE)
+
+
+TESTBBB = np.zeros((112,112,74))
+TESTCCC = np.zeros((112,112,74))
+for aaaa in range(0,74):
+    for bbbb in range(0,112):
+        for cccc in range(0,112):
+            TESTAAA = D_value(MDC_MATRIX[cccc,bbbb,aaaa,:])
+            NEW_D_VALUE = (XYZ_VALUE.dot(TESTAAA)).dot(XYZ_VALUE_T)
+            NEW_SIGNAL_VALUE = S_zero_ImageData[cccc,bbbb,aaaa]*np.exp(-b_value*NEW_D_VALUE)
+            TESTCCC[cccc,bbbb,aaaa] = NEW_SIGNAL_VALUE
+for dddd in range(0,74):
+    plt.imshow(TESTCCC[:,:,dddd], cmap='gray')
+    plt.show()            
+#NEW_Singal = S_zero_ImageData[:,:,3]*np.exp(-b_value*)
+
+###############################################################################
+for aaaa in range(0,112):
+    for bbbb in range(0,112):
+        for cccc in range(0,74):
+            TESTAAA = D_value(MDC_MATRIX[aaaa,bbbb,cccc,:])
+            Eval, Evec = np.linalg.eig(TESTAAA)
+            ADC_Value = np.mean(Eval)
+###############################################################################
+
+for aaa in range(0,112):
+    for bbb in range(0,112):
+        for ccc in range(0,74):
+            MDC = D_value(MDC_MATRIX[aaa,bbb,ccc,:])
+            Eval, Evec=np.linalg.eig(MDC)
+'''
